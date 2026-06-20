@@ -1,10 +1,10 @@
-"""Person detection + tracking using YOLOv8n with built-in ByteTrack."""
+"""Person detection + tracking using YOLOv11n with built-in ByteTrack. Falls back to YOLOv9/v8."""
 
+import os
 from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 from config.settings import (
     YOLO_CONFIDENCE,
@@ -19,10 +19,8 @@ from config.settings import (
     DETECT_ALL_OBJECTS,
     OBJECT_CONFIDENCE,
     OBJECT_CLASSES_OF_INTEREST,
+    MODEL_DIR,
 )
-
-# Detect all classes when DETECT_ALL_OBJECTS is on
-ALL_CLASSES = set(range(80))
 from utils.logger import get_logger
 from utils.profiler import profiler
 
@@ -51,24 +49,89 @@ COCO_CLASSES = {
     79: "toothbrush",
 }
 
+YOLO_MODEL_CANDIDATES = [
+    "yolo11n.pt",
+    "yolov9n.pt",
+    "yolov8n.pt",
+    "yolo11s.pt",
+    "yolov9s.pt",
+    "yolov8s.pt",
+]
+
+ALL_CLASSES = set(range(80))
+YOLO_PERSON = 0
+
 
 class PersonDetector:
     def __init__(self) -> None:
-        logger.info(f"[DETECT] Loading YOLO model: {YOLO_MODEL}")
-        self.model = YOLO(YOLO_MODEL)
-        self.model.to("cpu")
+        from ultralytics import YOLO
+
+        self._model_name = None
+        self._model_version = "unknown"
+        self._device = "cpu"
+
+        model_path = self._resolve_model()
+        logger.info(f"[DETECT] Loading YOLO model: {model_path}")
+        self.model = YOLO(model_path)
+        self.model.to(self._device)
+        self.model.overrides["imgsz"] = YOLO_IMAGE_SIZE
+        self.model.overrides["verbose"] = False
+        logger.info(f"[DETECT] YOLO forced imgsz={YOLO_IMAGE_SIZE}")
+
+        bn = os.path.basename(str(model_path)).lower()
+        if "yolo11" in bn:
+            self._model_version = "YOLOv11"
+        elif "yolov9" in bn:
+            self._model_version = "YOLOv9"
+        elif "yolov8" in bn:
+            self._model_version = "YOLOv8"
+
         self._tracked_persons: Dict[int, float] = {}
         self._id_counter = 0
         self._last_objects: List[DetectedObject] = []
+        self._total_frames = 0
+
+    def _resolve_model(self) -> str:
+        for candidate in YOLO_MODEL_CANDIDATES:
+            cand_path = MODEL_DIR / candidate
+            if cand_path.exists():
+                self._model_name = candidate
+                logger.info(f"[DETECT] Found model: {cand_path}")
+                return str(cand_path)
+
+            if os.path.exists(candidate):
+                self._model_name = candidate
+                return candidate
+
+        if os.path.exists(YOLO_MODEL):
+            self._model_name = os.path.basename(YOLO_MODEL)
+            return YOLO_MODEL
+
+        self._model_name = "yolo11n.pt"
+        logger.info("[DETECT] Model not found locally, Ultralytics will auto-download yolo11n.pt")
+        return "yolo11n.pt"
+
+    @property
+    def model_version(self) -> str:
+        return self._model_version
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name or "unknown"
 
     def detect_and_track(
         self, frame: np.ndarray
     ) -> Tuple[List[DetectedPerson], np.ndarray]:
         prober = profiler.get("detection")
         prober.start()
+        self._total_frames += 1
+
+        inference_size = YOLO_IMAGE_SIZE
+        small_frame = cv2.resize(frame, (inference_size, inference_size),
+                                 interpolation=cv2.INTER_LINEAR)
 
         results = self.model.track(
-            frame,
+            small_frame,
             persist=True,
             tracker=TRACKER_CONFIG,
             conf=YOLO_CONFIDENCE,
@@ -76,7 +139,7 @@ class PersonDetector:
             classes=[YOLO_PERSON_CLASS],
             imgsz=YOLO_IMAGE_SIZE,
             verbose=False,
-            device="cpu",
+            device=self._device,
         )
 
         if results is None or len(results) == 0:
@@ -84,7 +147,7 @@ class PersonDetector:
             return [], frame
 
         result = results[0]
-        annotated = result.plot() if hasattr(result, "plot") else frame
+        annotated = result.plot(conf=True, labels=True, boxes=True) if hasattr(result, "plot") else frame
         boxes = result.boxes
 
         if boxes is None or len(boxes) == 0:
@@ -93,6 +156,10 @@ class PersonDetector:
 
         persons: List[DetectedPerson] = []
         new_ids: List[int] = []
+        h, w = frame.shape[:2]
+        inference_size = YOLO_IMAGE_SIZE
+        scale_x = w / inference_size
+        scale_y = h / inference_size
 
         for i in range(len(boxes)):
             conf = float(boxes.conf[i]) if boxes.conf is not None else 0.0
@@ -102,7 +169,10 @@ class PersonDetector:
                 continue
 
             xyxy = boxes.xyxy[i].cpu().numpy()
-            x1, y1, x2, y2 = map(int, xyxy)
+            x1 = int(xyxy[0] * scale_x)
+            y1 = int(xyxy[1] * scale_y)
+            x2 = int(xyxy[2] * scale_x)
+            y2 = int(xyxy[3] * scale_y)
 
             track_id = (
                 int(boxes.id[i].item())
@@ -110,7 +180,6 @@ class PersonDetector:
                 else -1
             )
 
-            h, w = frame.shape[:2]
             pad_w = int((x2 - x1) * VLM_CROP_PADDING)
             pad_h = int((y2 - y1) * VLM_CROP_PADDING)
             cx1 = max(0, x1 - pad_w)
@@ -128,18 +197,20 @@ class PersonDetector:
                 "confidence": conf,
                 "crop": crop,
                 "center": ((x1 + x2) // 2, (y1 + y2) // 2),
+                "model_version": self._model_version,
             }
             persons.append(person)
 
             if track_id not in self._tracked_persons:
                 new_ids.append(track_id)
+                logger.info(f"[DETECT] NEW Person ID:{track_id} (conf={conf:.2f})")
             self._tracked_persons[track_id] = cv2.getTickCount() / cv2.getTickFrequency()
 
         current_time = cv2.getTickCount() / cv2.getTickFrequency()
         expired = [
             tid
             for tid, ts in self._tracked_persons.items()
-            if current_time - ts > 5.0
+            if current_time - ts > TRACK_PERSIST
         ]
         for tid in expired:
             del self._tracked_persons[tid]
@@ -147,9 +218,7 @@ class PersonDetector:
 
         if persons:
             ids = [p["track_id"] for p in persons]
-            logger.debug(f"[DETECT] Found {len(persons)} persons | IDs: {ids}")
-        for nid in new_ids:
-            logger.info(f"[DETECT] NEW Person ID:{nid} appeared")
+            logger.debug(f"[DETECT] {len(persons)} persons | IDs: {ids}")
 
         prober.stop()
         return persons, annotated
@@ -158,13 +227,20 @@ class PersonDetector:
         if not DETECT_ALL_OBJECTS:
             return []
 
+        h, w = frame.shape[:2]
+        inference_size = YOLO_IMAGE_SIZE
+        scale_x = w / inference_size
+        scale_y = h / inference_size
+        small_frame = cv2.resize(frame, (inference_size, inference_size),
+                                 interpolation=cv2.INTER_LINEAR)
+
         results = self.model(
-            frame,
+            small_frame,
             conf=OBJECT_CONFIDENCE,
             iou=YOLO_IOU,
             imgsz=YOLO_IMAGE_SIZE,
             verbose=False,
-            device="cpu",
+            device=self._device,
         )
 
         if results is None or len(results) == 0:
@@ -187,7 +263,10 @@ class PersonDetector:
                 continue
 
             xyxy = boxes.xyxy[i].cpu().numpy()
-            x1, y1, x2, y2 = map(int, xyxy)
+            x1 = int(xyxy[0] * scale_x)
+            y1 = int(xyxy[1] * scale_y)
+            x2 = int(xyxy[2] * scale_x)
+            y2 = int(xyxy[3] * scale_y)
             name = COCO_CLASSES.get(cls_id, f"cls_{cls_id}")
 
             objects.append({

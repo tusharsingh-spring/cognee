@@ -46,7 +46,7 @@ YOLO_MODEL = os.getenv("ARGUS_YOLO_MODEL", "yolov8n.pt")
 YOLO_CONFIDENCE = float(os.getenv("ARGUS_YOLO_CONFIDENCE", "0.5"))
 YOLO_IOU = float(os.getenv("ARGUS_YOLO_IOU", "0.5"))
 YOLO_PERSON_CLASS = int(os.getenv("ARGUS_YOLO_PERSON_CLASS", "0"))
-YOLO_IMAGE_SIZE = int(os.getenv("ARGUS_YOLO_IMAGE_SIZE", "640"))
+YOLO_IMAGE_SIZE = int(os.getenv("ARGUS_YOLO_IMAGE_SIZE", "320"))
 
 # --- Tracking (ByteTrack) ---
 TRACK_PERSIST = int(os.getenv("ARGUS_TRACK_PERSIST", "30"))
@@ -139,6 +139,95 @@ DISPLAY_FONT_SCALE = float(os.getenv("ARGUS_DISPLAY_FONT_SCALE", "0.6"))
 DISPLAY_BOX_COLOR = (0, 255, 0)
 DISPLAY_TEXT_COLOR = (255, 255, 255)
 DISPLAY_OVERLAY_ALPHA = float(os.getenv("ARGUS_DISPLAY_OVERLAY_ALPHA", "0.7"))
+
+# --- Smart Frame Gate ---
+GATE_ENABLED = os.getenv("ARGUS_GATE_ENABLED", "true").lower() == "true"
+GATE_MOTION_THRESHOLD = float(os.getenv("ARGUS_GATE_MOTION_THRESHOLD", "0.05"))
+GATE_POSE_DELTA = float(os.getenv("ARGUS_GATE_POSE_DELTA", "15.0"))
+GATE_MIN_INTERVAL = float(os.getenv("ARGUS_GATE_MIN_INTERVAL", "0.1"))
+GATE_MAX_SKIP = int(os.getenv("ARGUS_GATE_MAX_SKIP", "10"))
+GATE_CONTACT_EVENT_FORCE = os.getenv("ARGUS_GATE_CONTACT_FORCE", "true").lower() == "true"
+GATE_NEW_PERSON_FRAMES = int(os.getenv("ARGUS_GATE_NEW_PERSON_FRAMES", "15"))
+
+# --- Pose Estimation (RTMPose-S via ONNX) ---
+POSE_ENABLED = os.getenv("ARGUS_POSE_ENABLED", "true").lower() == "true"
+POSE_MODEL = os.getenv("ARGUS_POSE_MODEL", "rtmpose_s")
+POSE_DEVICE = os.getenv("ARGUS_POSE_DEVICE", "cpu")
+POSE_CONFIDENCE = float(os.getenv("ARGUS_POSE_CONFIDENCE", "0.5"))
+POSE_ONNX_PATH = MODEL_DIR / os.getenv("ARGUS_POSE_ONNX", "rtmpose_s.onnx")
+POSE_DET_ONNX_PATH = MODEL_DIR / os.getenv("ARGUS_POSE_DET_ONNX", "rtmdet_nano.onnx")
+POSE_IMG_SIZE = tuple(int(v) for v in os.getenv("ARGUS_POSE_IMG_SIZE", "256,192").split(","))
+POSE_COCO_KEYPOINTS = 17
+
+# --- Optical Flow (RAFT-small) ---
+FLOW_ENABLED = os.getenv("ARGUS_FLOW_ENABLED", "true").lower() == "true"
+FLOW_MODEL = os.getenv("ARGUS_FLOW_MODEL", "raft_small")
+FLOW_DEVICE = os.getenv("ARGUS_FLOW_DEVICE", "cpu")
+FLOW_EVERY_N = int(os.getenv("ARGUS_FLOW_EVERY_N", "2"))
+FLOW_RESIZE = tuple(int(v) for v in os.getenv("ARGUS_FLOW_RESIZE", "384,256").split(","))
+
+# --- Depth Estimation (Depth Anything V2 Small) ---
+DEPTH_ENABLED = os.getenv("ARGUS_DEPTH_ENABLED", "true").lower() == "true"
+DEPTH_MODEL = os.getenv("ARGUS_DEPTH_MODEL", "depth_anything_v2_small")
+DEPTH_DEVICE = os.getenv("ARGUS_DEPTH_DEVICE", "cpu")
+DEPTH_EVERY_N = int(os.getenv("ARGUS_DEPTH_EVERY_N", "2"))
+DEPTH_RESIZE = tuple(int(v) for v in os.getenv("ARGUS_DEPTH_RESIZE", "384,384").split(","))
+DEPTH_MM_SCALE = float(os.getenv("ARGUS_DEPTH_MM_SCALE", "1.0"))
+DEPTH_CONTACT_Z_THRESHOLD = float(os.getenv("ARGUS_DEPTH_CONTACT_Z_THRESHOLD", "30.0"))
+
+# --- Contact Detection (derived, no ML) ---
+CONTACT_ENABLED = os.getenv("ARGUS_CONTACT_ENABLED", "true").lower() == "true"
+CONTACT_DISTANCE_THRESHOLD_MM = float(os.getenv("ARGUS_CONTACT_DIST_MM", "30.0"))
+CONTACT_FLOW_THRESHOLD = float(os.getenv("ARGUS_CONTACT_FLOW_THRESHOLD", "0.15"))
+CONTACT_IOU_OVERLAP = float(os.getenv("ARGUS_CONTACT_IOU", "0.08"))
+
+# --- Segmentation (SAM2 / MobileSAM) ---
+SEG_ENABLED = os.getenv("ARGUS_SEG_ENABLED", "true").lower() == "true"
+SEG_MODEL = os.getenv("ARGUS_SEG_MODEL", "mobile_sam")
+SEG_DEVICE = os.getenv("ARGUS_SEG_DEVICE", "cpu")
+SEG_EVERY_N = int(os.getenv("ARGUS_SEG_EVERY_N", "5"))
+SEG_ALPHA = float(os.getenv("ARGUS_SEG_ALPHA", "0.35"))
+
+# --- Hand Tracking (MediaPipe Hands) ---
+HAND_ENABLED = os.getenv("ARGUS_HAND_ENABLED", "true").lower() == "true"
+HAND_CONFIDENCE = float(os.getenv("ARGUS_HAND_CONFIDENCE", "0.5"))
+HAND_EVERY_N = int(os.getenv("ARGUS_HAND_EVERY_N", "3"))
+HAND_MAX_HANDS = int(os.getenv("ARGUS_HAND_MAX_HANDS", "4"))
+
+# --- Gaze Estimation (MediaPipe FaceMesh iris) ---
+GAZE_ENABLED = os.getenv("ARGUS_GAZE_ENABLED", "true").lower() == "true"
+GAZE_MODEL = os.getenv("ARGUS_GAZE_MODEL", "mediapipe_facemesh")
+GAZE_EVERY_N = int(os.getenv("ARGUS_GAZE_EVERY_N", "3"))
+GAZE_CONFIDENCE = float(os.getenv("ARGUS_GAZE_CONFIDENCE", "0.5"))
+GAZE_ANGLE_THRESHOLD = float(os.getenv("ARGUS_GAZE_ANGLE_THRESHOLD", "25.0"))
+
+# --- Action Recognition (ST-GCN / CTR-GCN on pose sequences) ---
+ACTION_RECOG_ENABLED = os.getenv("ARGUS_ACTION_RECOG_ENABLED", "true").lower() == "true"
+ACTION_RECOG_MODEL = os.getenv("ARGUS_ACTION_RECOG_MODEL", "stgcn")
+ACTION_RECOG_DEVICE = os.getenv("ARGUS_ACTION_RECOG_DEVICE", "cpu")
+ACTION_RECOG_WINDOW = int(os.getenv("ARGUS_ACTION_RECOG_WINDOW", "32"))
+ACTION_RECOG_STRIDE = int(os.getenv("ARGUS_ACTION_RECOG_STRIDE", "8"))
+ACTION_RECOG_CONFIDENCE = float(os.getenv("ARGUS_ACTION_RECOG_CONFIDENCE", "0.6"))
+
+# --- Causal Variable Extraction (PCMCI+ feed) ---
+CAUSAL_ENABLED = os.getenv("ARGUS_CAUSAL_ENABLED", "true").lower() == "true"
+CAUSAL_OUTPUT_DIR = DATA_DIR / os.getenv("ARGUS_CAUSAL_DIR", "causal")
+CAUSAL_WINDOW_SECONDS = float(os.getenv("ARGUS_CAUSAL_WINDOW", "30.0"))
+
+# --- VLM Dense Captioning ---
+VLM_MAX_NEW_TOKENS = int(os.getenv("ARGUS_VLM_MAX_TOKENS", "1500"))
+VLM_DENSE_PROMPT = os.getenv("ARGUS_VLM_DENSE_PROMPT", "true").lower() == "true"
+
+# --- Audio Pipeline (Whisper) ---
+AUDIO_ENABLED = os.getenv("ARGUS_AUDIO_ENABLED", "false").lower() == "true"
+AUDIO_WHISPER_MODEL = os.getenv("ARGUS_AUDIO_WHISPER_MODEL", "small")
+AUDIO_DEVICE = os.getenv("ARGUS_AUDIO_DEVICE", "cpu")
+AUDIO_SAMPLE_RATE = int(os.getenv("ARGUS_AUDIO_SAMPLE_RATE", "16000"))
+
+# --- Unified CV Device ---
+CV_DEVICE = os.getenv("ARGUS_CV_DEVICE", "cpu")
+CV_USE_FP16 = os.getenv("ARGUS_CV_FP16", "true").lower() == "true"
+CV_ONNX_DIR = MODEL_DIR
 
 # --- Profiling ---
 PROFILE_EVERY_N_FRAMES = int(os.getenv("ARGUS_PROFILE_FRAMES", "100"))

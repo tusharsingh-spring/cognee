@@ -1,11 +1,11 @@
 """VLM inference engine using Florence-2 with async queue.
-Uses a single combined dense prompt per person for minimal latency."""
+Supports dense 100-200 word captions via extended max_new_tokens and rich task prompts."""
 
 import queue
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -14,6 +14,8 @@ from PIL import Image
 from config.settings import (
     VLM_CACHE_TTL,
     VLM_DEVICE,
+    VLM_DENSE_PROMPT,
+    VLM_MAX_NEW_TOKENS,
     VLM_MAX_SIZE,
     VLM_MODEL,
     VLM_QUEUE_MAXSIZE,
@@ -27,9 +29,23 @@ logger = get_logger(__name__)
 
 VLMResult = Dict[str, Any]
 
+DENSE_SYSTEM_SUFFIX = """ Provide an extremely detailed description (150-200 words) covering:
+- Full clothing and appearance details including colors, patterns, fabrics
+- Exact posture and body position
+- What the person is doing - the specific action with detail
+- Any objects they are holding, touching, or interacting with
+- Their facial expression and gaze direction if visible
+- Their body language and emotional state
+- Their position relative to other people, objects, and environment
+- Any notable movement or gestures
+- Environmental context and lighting"""
+
 PERSON_PROMPTS = OrderedDict([
     ("dense", "<MORE_DETAILED_CAPTION>"),
     ("scene", "<MORE_DETAILED_CAPTION>"),
+    ("od", "<OD>"),
+    ("ocr", "<OCR>"),
+    ("scene_full", "<MORE_DETAILED_CAPTION>"),
 ])
 
 
@@ -121,11 +137,13 @@ class VLMEngine:
         inputs = self.processor(text=prompt, images=pil_image, return_tensors="pt")
         inputs = {k: v.to(VLM_DEVICE) for k, v in inputs.items()}
 
+        max_tokens = VLM_MAX_NEW_TOKENS if VLM_DENSE_PROMPT else 1024
+
         with __import__("torch").no_grad():
             generated_ids = self.model.generate(
                 input_ids=inputs["input_ids"],
                 pixel_values=inputs["pixel_values"],
-                max_new_tokens=1024,
+                max_new_tokens=max_tokens,
                 num_beams=3,
                 do_sample=False,
                 return_dict_in_generate=False,
@@ -232,3 +250,19 @@ class VLMEngine:
 
     def submit_person_prompts(self, track_id: int, image: np.ndarray) -> int:
         return int(self.submit_person_dense(track_id, image))
+
+    def submit_full_scene(self, scene_id: str, full_frame: np.ndarray) -> bool:
+        key = "scene_full"
+        cached = self.get_result(scene_id, key)
+        if cached:
+            return False
+        resized = cv2.resize(full_frame, (VLM_MAX_SIZE, VLM_MAX_SIZE))
+        return self.submit_task(scene_id, key, resized)
+
+    def get_combined_result(self, track_id: int) -> Dict[str, str]:
+        results = {}
+        for key in ["dense", "scene", "od", "ocr"]:
+            r = self.get_result(track_id, key)
+            if r:
+                results[key] = r
+        return results

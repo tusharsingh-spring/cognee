@@ -68,16 +68,6 @@ class MotionCapture:
         self.last_frame = frame
         motion_boxes: List[Tuple[int, int, int, int]] = []
 
-        if self._is_video_file and self.frame_count % DENSE_FRAME_INTERVAL != 0:
-            return True, frame, []
-
-        if not self._is_video_file:
-            if self.frame_count % MOTION_FRAME_SKIP != 0 and self.skip_count < MOTION_FRAME_SKIP * 2:
-                self.skip_count += 1
-                return True, frame, []
-        else:
-            self.frame_count % MOTION_FRAME_SKIP
-
         prober = profiler.get("capture")
         prober.start()
 
@@ -100,7 +90,6 @@ class MotionCapture:
             self.skip_count += 1
         else:
             self.skip_count = 0
-            logger.debug(f"[MOTION] Detected {len(motion_boxes)} regions")
 
         fps = self._get_fps()
         prober.stop()
