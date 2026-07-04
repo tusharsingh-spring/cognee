@@ -1,110 +1,50 @@
-"""Streamlit dashboard for ARGUS Video Intelligence."""
+"""Streamlit dashboard for ARGUS V3 Video Intelligence."""
 
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import streamlit as st
 
 st.set_page_config(
-    page_title="ARGUS Dashboard",
+    page_title="ARGUS V3 Dashboard",
     page_icon="📹",
     layout="wide",
 )
 
-st.title("ARGUS Video Intelligence System")
+st.title("ARGUS V3 — Video Intelligence System")
+st.markdown("*3-Layer Architecture: Perception → VLM → LLM with Cognee Graph RAG*")
 st.markdown("---")
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT_DIR / "data"
-GRAPH_BACKUP = DATA_DIR / "graph_backup.json"
 DB_PATH = DATA_DIR / "db" / "events.db"
 
 
-def compute_project_progress() -> dict:
-    progress = {
-        "overall": 0.0,
-        "phase": "Initializing",
-        "categories": [
-            {"category": "Layer 1: Motion Detection", "progress": 0, "active": 0, "total": 2},
-            {"category": "Layer 2: Detection + Tracking", "progress": 0, "active": 0, "total": 3},
-            {"category": "Layer 3: VLM Engine", "progress": 0, "active": 0, "total": 4},
-            {"category": "Layer 4: Knowledge + Memory", "progress": 0, "active": 0, "total": 4},
-            {"category": "Layer 5: Alerts + Dashboard", "progress": 0, "active": 0, "total": 4},
-        ],
-    }
-    components = {
-        "Layer 1: Motion Detection": [("camera", 50), ("mog2", 50)],
-        "Layer 2: Detection + Tracking": [("yolo", 33.3), ("bytetrack", 33.3), ("crop", 33.3)],
-        "Layer 3: VLM Engine": [("florence", 25), ("caption", 25), ("vqa", 25), ("queue", 25)],
-        "Layer 4: Knowledge + Memory": [("graph", 25), ("chromadb", 25), ("sqlite", 25), ("vss", 25)],
-        "Layer 5: Alerts + Dashboard": [("alerts", 33.3), ("webhook", 33.3), ("dashboard", 33.3), ("summary", 0)],
-    }
-    checks = {
-        "camera": GRAPH_BACKUP.exists() or DB_PATH.exists(),
-        "mog2": GRAPH_BACKUP.exists() or DB_PATH.exists(),
-        "yolo": GRAPH_BACKUP.exists() or DB_PATH.exists(),
-        "bytetrack": GRAPH_BACKUP.exists() or DB_PATH.exists(),
-        "crop": GRAPH_BACKUP.exists() or DB_PATH.exists(),
-        "florence": False,
-        "caption": DB_PATH.exists(),
-        "vqa": DB_PATH.exists(),
-        "queue": False,
-        "graph": GRAPH_BACKUP.exists(),
-        "chromadb": (DATA_DIR / "chroma").exists(),
-        "sqlite": DB_PATH.exists(),
-        "vss": DB_PATH.exists(),
-        "alerts": DB_PATH.exists(),
-        "webhook": False,
-        "dashboard": True,
-        "summary": DB_PATH.exists(),
-    }
-
-    cat_progress = []
-    total_weight = 0
-    earned_weight = 0
-    for cat_name, items in components.items():
-        cat_total = sum(w for _, w in items)
-        cat_earned = 0
-        active = 0
-        for check, weight in items:
-            total_weight += weight
-            cat_earned += weight if checks.get(check, False) else 0
-            if checks.get(check, False):
-                active += 1
-        cat_pct = (cat_earned / cat_total * 100) if cat_total > 0 else 0
-        cat_progress.append({
-            "category": cat_name,
-            "progress": round(cat_pct, 1),
-            "active": active,
-            "total": len(items),
-        })
-        earned_weight += cat_earned
-
-    overall = (earned_weight / total_weight * 100) if total_weight > 0 else 0
-    if overall >= 95:
-        phase = "Production Ready"
-    elif overall >= 70:
-        phase = "Operational"
-    elif overall >= 40:
-        phase = "Partial"
-    elif overall >= 10:
-        phase = "Warming Up"
-    else:
-        phase = "Initializing"
-
-    progress["overall"] = round(overall, 1)
-    progress["phase"] = phase
-    progress["categories"] = cat_progress
-    return progress
-
-
-def load_graph_data() -> Optional[Dict]:
-    if not GRAPH_BACKUP.exists():
+def get_cognee():
+    try:
+        from graph_rag.cognee_bridge import CogneeBridge
+        return CogneeBridge()
+    except Exception:
         return None
-    with open(GRAPH_BACKUP) as f:
-        return json.load(f)
+
+
+def get_vector_store():
+    try:
+        from storage.vector_store import VectorStore
+        return VectorStore()
+    except Exception:
+        return None
+
+
+def get_sqlite():
+    try:
+        from storage.sqlite_store import SQLiteStore
+        return SQLiteStore()
+    except Exception:
+        return None
 
 
 def load_events() -> List[Dict]:
@@ -113,7 +53,7 @@ def load_events() -> List[Dict]:
     import sqlite3
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT event_type, track_id, data, timestamp FROM events ORDER BY timestamp DESC LIMIT 50"
+        "SELECT event_type, track_id, data, timestamp FROM events ORDER BY timestamp DESC LIMIT 100"
     ).fetchall()
     conn.close()
     return [
@@ -127,164 +67,148 @@ def load_events() -> List[Dict]:
     ]
 
 
+# ── Top Metrics ──
+cognee = get_cognee()
+vs = get_vector_store()
+sqlite = get_sqlite()
+
+stats = cognee.get_stats() if cognee else {}
+events = load_events()
+event_types = {}
+for e in events:
+    event_types[e["event_type"]] = event_types.get(e["event_type"], 0) + 1
+
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
-    st.metric("Persons Detected", st.session_state.get("person_count", 0))
+    st.metric("Graph Nodes", stats.get("total_nodes", 0))
 with col2:
-    st.metric("Interactions", st.session_state.get("interaction_count", 0))
+    st.metric("Graph Edges", stats.get("total_edges", 0))
 with col3:
-    st.metric("Objects Identified", st.session_state.get("object_count", 0))
+    st.metric("Events Logged", stats.get("events_indexed", 0))
 with col4:
-    st.metric("Alerts", st.session_state.get("alert_count", 0))
+    alert_count = event_types.get("alert", 0) + event_types.get("llm_alert", 0)
+    st.metric("Alerts", alert_count)
 
 st.markdown("---")
 
-progress_data = compute_project_progress()
-st.subheader(f"Project Progress: {progress_data['overall']:.1f}% - {progress_data['phase']}")
-st.progress(progress_data["overall"] / 100.0)
-
-pcols = st.columns(5)
-for i, cat in enumerate(progress_data["categories"]):
-    with pcols[i]:
-        st.metric(
-            cat["category"].split(":")[0].strip(),
-            f"{cat['progress']:.0f}%",
-            f"{cat['active']}/{cat['total']} active",
-        )
+# ── System Status ──
+st.subheader("System Status")
+status_cols = st.columns(5)
+checks = {
+    "Cognee Graph RAG": cognee is not None,
+    "ChromaDB Vector": vs is not None,
+    "SQLite Events": sqlite is not None,
+    "Graph Backup": (DATA_DIR / "graph_backup.json").exists(),
+    "Database": DB_PATH.exists(),
+}
+for i, (name, ok) in enumerate(checks.items()):
+    with status_cols[i]:
+        st.metric(name, "Active" if ok else "Inactive")
 
 st.markdown("---")
 
-tab1, tab2, tab3, tab4 = st.tabs(["Knowledge Graph", "Timeline", "Query", "Q&A"])
+# ── Tabs ──
+tab1, tab2, tab3, tab4 = st.tabs(["Knowledge Graph", "Timeline", "Graph Query", "Summary"])
 
 with tab1:
-    st.subheader("Knowledge Graph")
-    graph_data = load_graph_data()
-    if graph_data:
-        st.write(f"Nodes: {len(graph_data.get('nodes', []))} | Edges: {len(graph_data.get('links', []))}")
+    st.subheader("Knowledge Graph (Cognee)")
+    if cognee and stats.get("total_nodes", 0) > 0:
+        st.write(f"**Nodes**: {stats['total_nodes']} | **Edges**: {stats['total_edges']} | **Events**: {stats['events_indexed']}")
 
-        with st.expander("View Nodes"):
-            for node in graph_data.get("nodes", []):
-                st.text(f"{node.get('id', '?')} [{node.get('type', '?')}] - {node.get('label', '')}")
+        if stats.get("node_types"):
+            st.write("**Node Types**")
+            for nt, count in sorted(stats["node_types"].items()):
+                st.text(f"  {nt}: {count}")
+
+        with st.expander("Recent Events (Graph RAG)"):
+            recent = cognee.get_recent_events(20)
+            for r in recent:
+                ts = r.get("timestamp", 0)
+                time_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else "?"
+                st.text(f"[{time_str}] {r.get('type', '?')}: {r.get('label', '')[:150]}")
+
+        with st.expander("Person Histories"):
+            if hasattr(cognee, 'graph') and cognee.graph:
+                for node in list(cognee.graph.nodes(data=True)):
+                    node_id = node[0]
+                    node_data = node[1]
+                    if node_data.get("type") == "Person":
+                        tid = int(node_id.split("_")[-1]) if "_" in node_id else None
+                        if tid is not None:
+                            hist = cognee.get_person_history(tid)
+                            actions = hist.get("actions", [])
+                            interactions = hist.get("interactions", [])
+                            st.text(f"{node_id}: {len(actions)} actions, {len(interactions)} interactions")
+            else:
+                stats = cognee.get_stats()
+                if stats.get("events_indexed", 0) > 0:
+                    st.text(f"Person tracking available via search. {stats['events_indexed']} events indexed in cognee.")
+                    query_tid = st.number_input("Track ID to search", min_value=0, value=1, step=1, key="person_tid")
+                    if st.button("Search Person", key="search_person"):
+                        hist = cognee.get_person_history(int(query_tid))
+                        actions = hist.get("actions", [])
+                        interactions = hist.get("interactions", [])
+                        st.text(f"Person_{query_tid}: {len(actions)} actions, {len(interactions)} interactions")
+                        for a in actions[:5]:
+                            st.text(f"  - {str(a.get('answer', a))[:200]}")
+                else:
+                    st.info("No graph data yet. Run the pipeline first.")
     else:
-        st.info("No graph data available yet. Data is saved periodically when the pipeline is running.")
+        st.info("Knowledge graph is empty. Run the pipeline to populate it: `python main.py --video auto`")
 
 with tab2:
     st.subheader("Event Timeline")
-    events = load_events()
     if events:
-        for evt in events:
-            ts = time.strftime("%H:%M:%S", time.localtime(evt["timestamp"]))
-            st.text(f"[{ts}] {evt['event_type']} | Track ID: {evt['track_id']}")
+        for evt in events[:50]:
+            ts = evt.get("timestamp", 0)
+            time_str = datetime.fromtimestamp(float(ts)).strftime("%H:%M:%S") if ts else "?"
+            data_preview = str(evt.get("data", {}))[:100]
+            st.text(f"[{time_str}] {evt['event_type']} | Track: {evt['track_id']} | {data_preview}")
     else:
-        st.info("No events recorded yet.")
+        st.info("No events recorded yet. Run the pipeline first.")
 
 with tab3:
     st.subheader("Graph Query")
-    query = st.text_input("Search nodes or edges")
-    if query:
-        graph_data = load_graph_data()
-        if graph_data:
-            matches = []
-            for node in graph_data.get("nodes", []):
-                if query.lower() in str(node).lower():
-                    matches.append(node)
-            st.write(f"Found {len(matches)} matching nodes")
-            for m in matches[:20]:
-                st.text(f"{m.get('id', '?')} [{m.get('type', '?')}]")
+    query = st.text_input("Search knowledge graph", placeholder="e.g. Person_1, laptop, scene...")
+    if query and cognee:
+        results = cognee.retrieve_context(query, top_k=15)
+        if results:
+            st.write(f"**Found {len(results)} matches**")
+            for r in results[:20]:
+                score = r.get("score", 0)
+                neighbors = r.get("neighbors", [])
+                n_preview = ", ".join(
+                    n.get("target", n.get("source", "")) for n in neighbors[:3]
+                )
+                st.text(f"[score={score:.1f}] {r['node']} [{r['type']}]: {r['label'][:200]}")
+                if neighbors:
+                    st.text(f"  Connected to: {n_preview}")
+        else:
+            st.info("No matches found in knowledge graph.")
 
 with tab4:
-    st.subheader("Ask Questions About CCTV Data")
-    st.caption("Query recorded events, persons, objects, and interactions")
+    st.subheader("System Summary")
+    if events:
+        st.write("**Event Type Distribution**")
+        st.json(event_types)
 
-    qa_query = st.text_input("Ask a question:", key="qa_input",
-        placeholder="e.g. 'who was detected?', 'what objects were seen?', 'show all interactions'")
-
-    if qa_query:
-        q = qa_query.lower()
-        events = load_events()
-        graph_data = load_graph_data()
-
-        if "who" in q or "person" in q:
-            persons = [e for e in events if e["event_type"] in ("caption", "vlm_request")]
-            if persons:
-                st.write(f"Found {len(persons)} person-related events:")
-                for p in persons[:10]:
-                    ts = time.strftime("%H:%M:%S", time.localtime(p["timestamp"]))
-                    st.text(f"[{ts}] Person_{p['track_id']}: {p.get('data', {}).get('caption', '')[:100]}")
+        if cognee:
+            daily_patterns = cognee.get_daily_patterns()
+            if daily_patterns:
+                st.write("**Daily Patterns**")
+                for p in daily_patterns[:5]:
+                    st.text(p.get("label", "")[:200])
             else:
-                st.info("No person events found.")
+                st.info("No daily patterns yet (requires more data).")
 
-        elif "object" in q or "what" in q:
-            if graph_data:
-                obj_nodes = [n for n in graph_data.get("nodes", []) if n.get("type") == "Object"]
-                if obj_nodes:
-                    st.write(f"Found {len(obj_nodes)} objects:")
-                    for n in obj_nodes[:20]:
-                        st.text(f"  {n.get('id','?')}: {n.get('label','')}")
-                else:
-                    st.info("No objects detected yet.")
-            else:
-                st.info("No data available.")
-
-        elif "interact" in q:
-            int_events = [e for e in events if e["event_type"] == "interaction"]
-            if int_events:
-                st.write(f"Found {len(int_events)} interactions:")
-                for ie in int_events[:15]:
-                    ts = time.strftime("%H:%M:%S", time.localtime(ie["timestamp"]))
-                    data = ie.get("data", {})
-                    st.text(f"[{ts}] Person_{data.get('person_a','?')} ↔ Person_{data.get('person_b','?')}")
-            else:
-                st.info("No interactions recorded.")
-
-        elif "alert" in q:
-            alert_events = [e for e in events if e["event_type"] == "alert"]
-            if alert_events:
-                st.write(f"Found {len(alert_events)} alerts:")
-                for ae in alert_events[:10]:
-                    ts = time.strftime("%H:%M:%S", time.localtime(ae["timestamp"]))
-                    st.text(f"[{ts}] {ae.get('data', {}).get('alert', '')}")
-            else:
-                st.info("No alerts.")
-
-        elif "summary" in q or "stats" in q:
-            types = {}
-            for e in events:
-                types[e["event_type"]] = types.get(e["event_type"], 0) + 1
-            st.write("Event Summary:")
-            st.json(types)
-
-            if graph_data:
-                node_types = {}
-                for n in graph_data.get("nodes", []):
-                    node_types[n.get("type", "?")] = node_types.get(n.get("type", "?"), 0) + 1
-                st.write("Graph Nodes:")
-                st.json(node_types)
-                st.write(f"Edges: {len(graph_data.get('links', []))}")
-
-        else:
-            all_text = ""
-            for e in events:
-                all_text += str(e.get("data", {})) + " "
-            if graph_data:
-                for n in graph_data.get("nodes", []):
-                    all_text += str(n.get("label", "")) + " "
-
-            words = q.split()
-            matches = []
-            for word in words:
-                if len(word) > 2 and word in all_text.lower():
-                    matches.append(word)
-
-            if matches:
-                st.write(f"Keywords found in data: {', '.join(matches)}")
-                related = [e for e in events if any(w in str(e.get("data", {})).lower() for w in matches)]
-                for r in related[:10]:
-                    ts = time.strftime("%H:%M:%S", time.localtime(r["timestamp"]))
-                    st.text(f"[{ts}] {r['event_type']}: {str(r.get('data', {}))[:120]}")
-            else:
-                st.info("No matches found. Try asking about: persons, objects, interactions, alerts, summary")
+        from collections import Counter
+        track_events = Counter(e["track_id"] for e in events if e["track_id"] is not None)
+        if track_events:
+            st.write("**Most Active Persons**")
+            for tid, count in track_events.most_common(5):
+                st.text(f"  Person_{tid}: {count} events")
+    else:
+        st.info("No data available yet.")
 
 st.markdown("---")
-st.caption("ARGUS - Video Intelligence System | Real-time monitoring dashboard")
+st.caption("ARGUS V3 — 3-Layer Video Intelligence System | Real-time monitoring")

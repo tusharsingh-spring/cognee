@@ -40,22 +40,30 @@ class FaceRecognizer:
             face_cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
             self._detector = cv2.CascadeClassifier(face_cascade_path)
             self._mp_type = "opencv"
-            logger.info("[FACE] Using OpenCV Haar cascade")
+            logger.info("[FACE] Using OpenCV Haar cascade (DeepFace deferred)")
         except Exception:
             logger.warning("[FACE] Face detection unavailable")
             self._loaded = True
             return
 
+        self._deepface_available = False
+        self._deepface_attempted = False
+        self._loaded = True
+        logger.info("[FACE] Face recognition ready")
+
+    def _ensure_deepface(self) -> bool:
+        if self._deepface_attempted:
+            return self._deepface_available
+        self._deepface_attempted = True
         try:
             from deepface import DeepFace
             self._deepface_available = True
-            logger.info(f"[FACE] DeepFace available for recognition")
+            logger.info("[FACE] DeepFace available for recognition")
+            return True
         except Exception as e:
             logger.warning(f"[FACE] DeepFace unavailable: {e}")
             self._deepface_available = False
-
-        self._loaded = True
-        logger.info("[FACE] Face recognition ready")
+            return False
 
     def detect_faces(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         if not self._loaded or not self._detector:
@@ -105,7 +113,7 @@ class FaceRecognizer:
         if face_crop.size == 0:
             return None
 
-        if hasattr(self, "_deepface_available") and self._deepface_available:
+        if self._ensure_deepface():
             try:
                 from deepface import DeepFace
                 face_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)

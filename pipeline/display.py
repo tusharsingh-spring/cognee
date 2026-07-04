@@ -164,7 +164,10 @@ class DisplayManager:
         fps = stats.get("fps", 0)
         person_count = stats.get("person_count", 0)
         gate_stats = stats.get("gate_stats") or {}
-        gate_str = f"G:{gate_stats.get('forwarded',0)}/{gate_stats.get('total',0)} ({gate_stats.get('skip_rate',0):.0f}%)" if gate_stats else "G:off"
+        if isinstance(gate_stats, dict):
+            gate_str = f"G:{gate_stats.get('forwarded',0)}/{gate_stats.get('total',0)} ({gate_stats.get('skip_rate',0):.0f}%)" if gate_stats else "G:off"
+        else:
+            gate_str = f"G:f={gate_stats}" if gate_stats else "G:off"
 
         cv2.putText(canvas, f"FPS: {fps:.1f} | P: {person_count} | {gate_str} | YOLO: {stats.get('yolo_model','?')}",
                    (10, h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)

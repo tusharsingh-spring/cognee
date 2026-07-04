@@ -50,12 +50,19 @@ COCO_CLASSES = {
 }
 
 YOLO_MODEL_CANDIDATES = [
-    "yolo11n.pt",
-    "yolov9n.pt",
-    "yolov8n.pt",
+    "yolo11x.pt",
+    "yolo11l.pt",
+    "yolo11m.pt",
     "yolo11s.pt",
+    "yolo11n.pt",
+    "yolov9c.pt",
+    "yolov9e.pt",
     "yolov9s.pt",
+    "yolov8x.pt",
+    "yolov8l.pt",
+    "yolov8m.pt",
     "yolov8s.pt",
+    "yolov8n.pt",
 ]
 
 ALL_CLASSES = set(range(80))
@@ -259,7 +266,7 @@ class PersonDetector:
             if cls_id == YOLO_PERSON_CLASS:
                 continue
 
-            if cls_id not in ALL_CLASSES:
+            if cls_id not in ALL_CLASSES or cls_id == YOLO_PERSON_CLASS:
                 continue
 
             xyxy = boxes.xyxy[i].cpu().numpy()

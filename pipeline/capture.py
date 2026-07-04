@@ -20,6 +20,7 @@ from config.settings import (
     MOTION_THRESHOLD,
     VIDEO_FILE,
     DENSE_FRAME_INTERVAL,
+    SUPPORTED_VIDEO_FORMATS,
 )
 from utils.logger import get_logger
 from utils.profiler import profiler
@@ -30,13 +31,24 @@ logger = get_logger(__name__)
 class MotionCapture:
     def __init__(self, source: Optional[str] = None) -> None:
         _source = source or VIDEO_FILE or CAMERA_URL or CAMERA_INDEX
-        self._is_video_file = bool(source or VIDEO_FILE)
-        self._source_name = _source
+        self._source_name = str(_source)
+        source_str = str(_source)
+
+        self._is_video_file = self._detect_source_type(source_str)
+        self._is_live = not self._is_video_file
+
+        if source_str.isdigit():
+            _source = int(source_str)
+
         self.cap = cv2.VideoCapture(_source)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-        self.cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
-        logger.info(f"[CAPTURE] Source: {_source} (video_file={self._is_video_file})")
+        if self._is_live:
+            self.cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+
+        source_type = "live" if self._is_live else "file"
+        logger.info(f"[CAPTURE] Source: {self._source_name} (type={source_type})")
 
         self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(
             history=MOTION_HISTORY,
@@ -50,6 +62,19 @@ class MotionCapture:
         self._fps_times: List[float] = []
         self._running = False
 
+    @staticmethod
+    def _detect_source_type(source: str) -> bool:
+        if not source:
+            return False
+        if source.isdigit():
+            return False
+        if source.startswith(("http://", "https://", "rtsp://", "rtmp://")):
+            return False
+        if source.endswith(tuple(SUPPORTED_VIDEO_FORMATS)):
+            return True
+        from pathlib import Path
+        return Path(source).is_file()
+
     def _get_fps(self) -> float:
         now = time.perf_counter()
         self._fps_times.append(now)
@@ -57,12 +82,16 @@ class MotionCapture:
         return len(self._fps_times) / 5.0 if self._fps_times else 0.0
 
     def read(self) -> Tuple[bool, Optional[np.ndarray], List[Tuple[int, int, int, int]]]:
-        ret, frame = self.cap.read()
+        try:
+            ret, frame = self.cap.read()
+        except cv2.error as e:
+            logger.error(f"[CAPTURE] Frame read failed (likely OOM): {e}")
+            return False, None, []
+        except Exception as e:
+            logger.error(f"[CAPTURE] Unexpected read error: {e}")
+            return False, None, []
         if not ret or frame is None:
-            if self._is_video_file:
-                return False, None, []
-            if not ret or frame is None:
-                return False, None, []
+            return False, None, []
 
         self.frame_count += 1
         self.last_frame = frame

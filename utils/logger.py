@@ -1,41 +1,34 @@
-"""Structured logging for ARGUS."""
-
 import logging
 import sys
 from pathlib import Path
 
 from config.settings import LOG_FILE, LOG_FORMAT, LOG_LEVEL
 
-_logger_cache = {}
-
-_formatter = logging.Formatter(LOG_FORMAT)
-
-_stream_handler = logging.StreamHandler(sys.stdout)
-_stream_handler.setFormatter(_formatter)
-
-_file_handler = None
-
-
-def _get_file_handler():
-    global _file_handler
-    if _file_handler is None:
-        _file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-        _file_handler.setFormatter(_formatter)
-    return _file_handler
+_loggers: dict = {}
 
 
 def get_logger(name: str) -> logging.Logger:
-    if name in _logger_cache:
-        return _logger_cache[name]
+    if name in _loggers:
+        return _loggers[name]
 
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
     logger.propagate = False
-    logger.addHandler(_stream_handler)
-    try:
-        logger.addHandler(_get_file_handler())
-    except Exception:
-        pass
 
-    _logger_cache[name] = logger
+    if not logger.handlers:
+        fmt = logging.Formatter(LOG_FORMAT, datefmt="%H:%M:%S")
+
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(fmt)
+        logger.addHandler(stream_handler)
+
+        try:
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(str(LOG_FILE), encoding="utf-8")
+            file_handler.setFormatter(fmt)
+            logger.addHandler(file_handler)
+        except OSError:
+            pass
+
+    _loggers[name] = logger
     return logger

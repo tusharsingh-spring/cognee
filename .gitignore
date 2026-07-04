@@ -16,6 +16,9 @@ data/reid/
 data/graph_backup.json
 data/videos/
 data/*.json
+data/*.jsonl
+data/causal/
+data/causal_outputs/
 .env
 .vscode/
 .idea/
